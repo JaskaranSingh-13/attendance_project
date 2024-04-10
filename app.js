@@ -6,6 +6,7 @@ const bcrypt = require('bcrypt');
 const cookieParser = require('cookie-parser');
 const bodyParser = require('body-parser');
 const Student = require('./student.js');
+const Record = require('./record.js');
 
 
 const app = express();
@@ -21,15 +22,23 @@ app.use(cookieParser());
 
 const url = 'mongodb+srv://JaskaranSingh-13:Mongodb25@atlascluster.xtuh4vp.mongodb.net/';
 
+mongoose.connect(url)
+.then(() =>{
+  console.log('Connected to MongoDB Database');
+})
+.catch((err)=>{
+  console.log(`Error connecting to the database: ${err}`)
+});
+
 app.get('/', (req, res) =>{
 
     res.render('login');
 
 });
 
-app.get('/home', (req, res) =>{
+/*app.get('/home', (req, res) =>{
     res.render('attendance');
-});
+});*/
 
 
 //Rendering the password
@@ -74,6 +83,13 @@ app.post('/', async (req, res) => {
         }
 
     });
+
+    jwt.verify(token, secretKey, (err, decoded) =>{
+
+        console.log(token);
+       console.log(decoded);
+
+      });
 
 });
 
@@ -126,16 +142,31 @@ app.post('/register', (req, res) => {
 });
 
 
+app.post('/addstudent', (req, res) =>{
+  
+    const student = new Record({
+      name: req.body.name,
+      email: req.body.email
+    });
+  
+    student.save();
+  
+    res.redirect('/home');
+  
+  });
 
-mongoose.connect(url)
-.then(()=>{
-    console.log('Connected to MongoDB Database');
-})
-.catch((err)=>{
-    console.log(`Error connecting to the database: ${err}`)
-});
 
+app.get('/home', async (req, res) =>{
 
+    const students = await Record.find({});
+  
+    //Using max method with cascade operator to perform function on all students
+    const maxAttendanceCount = Math.max(...students.map(student => student.attendanceCount));
+    
+  
+    res.render('attendance.ejs', {students, maxAttendanceCount});
+  
+  });
 
 
 const PORT = process.env.PORT || 5000;
