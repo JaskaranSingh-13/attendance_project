@@ -168,6 +168,44 @@ app.get('/home', async (req, res) =>{
   
   });
 
+  app.post('/update-student', async (req, res) =>{
+
+    const attendanceDate = req.body.attendanceDate;
+
+    const length = req.body.attendance ? req.body.attendance.length: 0;
+
+    console.log(req.body.email12);
+
+    try {
+
+        for(let i = 0; i < length; i++) {
+
+            const studentId = req.body.attendance[i];
+
+            const result = await Record.findByIdAndUpdate(
+
+                studentId,
+                {
+
+                    $inc: {attendanceCount: 1},
+                    $set: {sttendanceDate: new Date(attendanceDate)}
+
+                },
+                {new: true},
+            
+            );
+            res.redirect('/home');
+
+        }
+
+    } catch(err) {
+
+        return res.status(500).send("An unknown error has occured while updating student records.");
+
+    }
+
+  });
+
 
 const PORT = process.env.PORT || 5000;
                                                                                             
