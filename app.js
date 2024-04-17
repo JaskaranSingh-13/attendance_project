@@ -7,8 +7,9 @@ const cookieParser = require('cookie-parser');
 const bodyParser = require('body-parser');
 const Student = require('./student.js');
 const Record = require('./record.js');
-
-
+const student = require('./student.js');
+const session = require('express-session');
+const secretKey = 'my_secret_key';
 const app = express();
 
 
@@ -17,10 +18,41 @@ app.set('views', './views');
 
 //Middleware (use)
 app.use(express.static('public'));
-app.use(bodyParser.urlencoded({extended:true}));
+app.use(bodyParser.urlencoded({extended: true}));
+app.use(express.json());
 app.use(cookieParser());
+app.use(session({
+  secret: secretKey,
+  resave: false,
+  saveUninitialized: false,
+}))
 
-const url = 'mongodb+srv://JaskaranSingh-13:Mongodb25@atlascluster.xtuh4vp.mongodb.net/';
+//High-level middleware function for JWT authentication
+function authenticateToken(req, res, next){
+
+    const token = req.cookies.jwt;
+
+    if(token){
+
+
+      jwt.verify(token, secretKey, (err, decoded) => {
+
+          if(err) {
+            return res.status(401).send('Invalid Token');
+          }
+
+            req.userId = decoded;
+
+          next();
+      })
+    } else {
+      res.status(401).render('401');
+    }
+}
+
+
+
+const url = `mongodb+srv://JaskaranSingh-13:Mongodb25@atlascluster.xtuh4vp.mongodb.net/`;
 
 mongoose.connect(url)
 .then(() =>{
@@ -30,185 +62,246 @@ mongoose.connect(url)
   console.log(`Error connecting to the database: ${err}`)
 });
 
+
 app.get('/', (req, res) =>{
+  res.render('login');
+});
 
-    res.render('login');
+
+
+app.post('/' , async (req, res) => {
+
+  const email = req.body.email;
+  const password = req.body.password;
+  
+
+  //Find user in the database by email
+  const user =  await Student.findOne({email});
+
+  if(!user){
+    //User not found
+    res.status(404).send('User not found');
+    return;
+  }
+
+  //Creating and signing a JWT
+  const unique = user._id.toString();
+
+
+  //Storing userId in the session
+  req.session.userId = user._id.toString();
+
+  //Create a jwt
+  const token = jwt.sign(unique, secretKey);
+  
+  //Stuff the token (jwt) inside the cookie and issue it
+   res.cookie('jwt', token, {maxAge: 5 * 60 * 1000, httpOnly: true});
+
+   bcrypt.compare(password, user.password, (err, result) =>{
+
+    if(result){
+        res.redirect('home');
+    } else {
+      res.send('Password does not match our records. Please try again')
+    }
+  });
 
 });
 
-/*app.get('/home', (req, res) =>{
-    res.render('attendance');
-});*/
 
+app.post('/register', (req, res) =>{
 
-//Rendering the password
-app.post('/', async (req, res) => {
+  const {email, password, confirmPassword} = req.body;
 
-    const email = req.body.email;
-    const password = req.body.password;
-    secretKey = 'my_secret_key';
+  const user = Student.findOne({email});
 
-    //Find user in the database by email
-    const user = await Student.findOne({email});
+  //Check if username already exists.  
+  //if(user){
+    //  res.status(400).send('Username already exists.  Please try again');
+     // return;
+  //}
 
-
-    if(!user){
-
-        //user not found
-        res.status(404).send('User not found');
+  //Check if the confirm password equals the password
+  if(password !== confirmPassword){
+        res.status(400).send('Passwords do not match!');
         return;
-        
-    }
+  }
 
-    //Creating and signing a JWT 
-    const unique = user._id.toString();
+  bcrypt.hash(password, 12, (err, hashedPassword) =>{
 
-    //Create a jwt
-    const token = jwt.sign(unique, secretKey);
-
-    //Stuff the token (jwt) inside the cokkie
-    res.cookie('jwt', token, {maxAge: 5 * 60 * 1000, httpOnly: true });
-
-    bcrypt.compare(password, user.password, (err, result) => {
-
-    
-        if(result){
-
-            res.redirect('home');
-
-        } else {
-
-            res.send('Password does not match our records. Please try again');
-
-        }
-
+    const user = new Student({
+      email: email,
+      password: hashedPassword,
     });
 
-    jwt.verify(token, secretKey, (err, decoded) =>{
+    user.save();
 
-        console.log(token);
-       console.log(decoded);
+    res.redirect('/');
 
-      });
-
+  });
 });
 
 
-app.post('/register', (req, res) => {
-
-    const {email, password, confirmPassword} = req.body;
-
-    const user = Student.findOne({email});
-
-
-    //Check if username already exists.
-    /*if(user){
-
-        res.status(400).send('Username already exists. Please try again');
-        return;
-
-    }*/
-
-    //Check if the confirm password equals the password
-    if(password !== confirmPassword){
-
-        res.status(400).send('Passwords do not match');
-        return;
-
-    }
-
-    bcrypt.hash(password, 12, (err, hashedPassword) => {
-
-        const user = new Student ({
-
-            email: email,
-            password: hashedPassword,
-
-        });
-
-        user.save();
-
-        res.redirect('/');
-
-
-    });
-
-});
-
-    app.get('/register', (req, res) => {
-
-        res.render('register');
-
+app.get('/register', (req, res) => {
+  res.render('register');
 });
 
 
 app.post('/addstudent', (req, res) =>{
   
+  const student = new Record({
+    name: req.body.name,
+    email: req.body.email
+  });
+
+  student.save();
+
+  res.redirect('/home');
+
+});
+
+
+app.post('/deletestudent', async (req, res) =>{
+
+  const studentName = req.body.name;
+  const trimmedName = studentName.trim();
+
+  try{
+    const result = await Record.deleteOne({name: trimmedName});
+
+    if(result.deletedCount === 0){
+      res.status(404).send('User does not exist.  Try again.');
+    } else {
+      res.redirect('/home');
+    }
+
+  } catch(error){
+
+}
+
+});
+
+
+
+
+app.get('/home', authenticateToken,  async (req, res) =>{
+
+  const students = await Record.find({});
+
+  //Using max method with cascade operator to perform function on all students
+  const maxAttendanceCount = Math.max(...students.map(student => student.attendanceCount));
+  
+
+  res.render('attendance.ejs', {students, maxAttendanceCount});
+
+});
+
+
+
+
+app.post('/update-student', async (req, res) =>{
+
+  const attendanceDate  = req.body.attendanceDate;
+  const length = req.body.attendance ? req.body.attendance.length : 0;
+
+  try {
+      for(let i = 0; i < length; i++){
+
+        const studentId = req.body.attendance[i];
+
+
+        const result = await Record.findByIdAndUpdate(
+          studentId,
+          {
+            $inc: {attendanceCount: 1},
+            $set: {attendanceDate: new Date(attendanceDate)}
+          },
+          {new: true},
+        );
+       
+      }
+     return res.status(200).redirect('/home');
+  } catch(err){
+     res.status(500).send("An unknown error has occurred while updating student records.");
+  }
+});
+
+app.get('/api/v2', async (req, res) => {
+  try {
+    const records = await Record.find({});
+    const formatted = JSON.stringify(records);
+   res.send(formatted);
+  } catch (error) {
+   console.error("Error fetching records:", error);
+   res.status(500).send("Error fetching records");
+  }
+});
+
+app.post('/api/v2', async (req, res) =>{
+
+  try{
+    const {name, email} = req.body;
+
+    //Create the new student record
     const student = new Record({
-      name: req.body.name,
-      email: req.body.email
+      name: name,
+      email: email,
     });
-  
-    student.save();
-  
-    res.redirect('/home');
-  
-  });
 
-
-app.get('/home', async (req, res) =>{
-
-    const students = await Record.find({});
-  
-    //Using max method with cascade operator to perform function on all students
-    const maxAttendanceCount = Math.max(...students.map(student => student.attendanceCount));
+    await student.save();
     
-  
-    res.render('attendance.ejs', {students, maxAttendanceCount});
-  
-  });
+    res.status(200).json({message: 'Student added successfully', student: student});
+  }catch(error){
+    res.status(500).json({error: 'Am error occurred while adding new student record.'});
+ }
 
-  app.post('/update-student', async (req, res) =>{
+});
 
-    const attendanceDate = req.body.attendanceDate;
 
-    const length = req.body.attendance ? req.body.attendance.length: 0;
 
-    console.log(req.body.email12);
 
-    try {
+app.post('/reset', async (req, res) =>{
 
-        for(let i = 0; i < length; i++) {
+  try{
+   const students = await Record.find({});
 
-            const studentId = req.body.attendance[i];
+   for(let i = 0; i < students.length; i++){
+    students[i].attendanceCount = 0;
+    await students[i].save();
+   }
 
-            const result = await Record.findByIdAndUpdate(
+   res.redirect('/home');
 
-                studentId,
-                {
+  }catch(error){
 
-                    $inc: {attendanceCount: 1},
-                    $set: {sttendanceDate: new Date(attendanceDate)}
+    res.status(500).send("An unknown error has occurred while updating student records.");
 
-                },
-                {new: true},
-            
-            );
-            res.redirect('/home');
+  }
+});
 
-        }
+app.post('/logout', (req, res) =>{
 
-    } catch(err) {
+  res.clearCookie('jwt');
 
-        return res.status(500).send("An unknown error has occured while updating student records.");
+  req.session.userId = null;
 
+  req.session.destroy((err) =>{
+
+    if(err){
+      res.status(500).send('Internal Server Error');
+    } else{
+      res.redirect('/');
     }
 
   });
 
+});
+
+
+
 
 const PORT = process.env.PORT || 5000;
-                                                                                            
+
 app.listen(PORT, ()=>{
-    console.log(`Successfully connected to ${PORT}`);
+  console.log(`Successfully connected to ${PORT}`);
 });
