@@ -9,6 +9,7 @@ const Student = require('./student.js');
 const Record = require('./record.js');
 const student = require('./student.js');
 const session = require('express-session');
+const rateLimit = require('express-rate-limit');
 const secretKey = 'my_secret_key';
 const app = express();
 
@@ -50,8 +51,17 @@ function authenticateToken(req, res, next){
     }
 }
 
+//Rate limit configurtaion
+const apiLimiter = rateLimit({
+    windowsMS: 1 * 60 * 1000,
+    max: 15,
+    standardHeaders: true,
+    legacyHeaders: false,
+
+})
 
 
+//Link to connect to the Mongo Database.
 const url = `mongodb+srv://JaskaranSingh-13:Mongodb25@atlascluster.xtuh4vp.mongodb.net/`;
 
 mongoose.connect(url)
@@ -226,7 +236,7 @@ app.post('/update-student', async (req, res) =>{
   }
 });
 
-app.get('/api/v2', async (req, res) => {
+app.get('/api/v2', apiLimiter, async (req, res) => {
   try {
     const records = await Record.find({});
     const formatted = JSON.stringify(records);
